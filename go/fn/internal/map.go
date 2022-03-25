@@ -19,6 +19,7 @@ import (
 	"log"
 	"sort"
 
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
 )
 
@@ -84,7 +85,7 @@ func (o *MapVariant) Entries() (map[string]variant, error) {
 	return entries, nil
 }
 
-func asString(node *yaml.Node) (string, bool) {
+func AsString(node *yaml.Node) (string, bool) {
 	if node.Kind == yaml.ScalarNode && (node.Tag == "!!str" || node.Tag == "") {
 		return node.Value, true
 	}
@@ -110,7 +111,7 @@ func getValueNode(m *yaml.Node, key string) (*yaml.Node, bool) {
 	for i := 0; i < len(children); i += 2 {
 		keyNode := children[i]
 
-		k, ok := asString(keyNode)
+		k, ok := AsString(keyNode)
 		if ok && k == key {
 			valueNode := children[i+1]
 			return valueNode, true
@@ -119,7 +120,7 @@ func getValueNode(m *yaml.Node, key string) (*yaml.Node, bool) {
 	return nil, false
 }
 
-func (o *MapVariant) set(key string, val variant) {
+func (o *MapVariant) setVariant(key string, val variant) {
 	o.setYAMLNode(key, val.Node())
 }
 
@@ -132,7 +133,7 @@ func (o *MapVariant) setYAMLNode(key string, node *yaml.Node) {
 	for i := 0; i < len(children); i += 2 {
 		keyNode := children[i]
 
-		k, ok := asString(keyNode)
+		k, ok := AsString(keyNode)
 		if ok && k == key {
 			// TODO: Copy comments?
 			oldNode := children[i+1]
@@ -147,6 +148,26 @@ func (o *MapVariant) setYAMLNode(key string, node *yaml.Node) {
 	o.node.Content = append(o.node.Content, buildStringNode(key), node)
 }
 
+// SetString is a helper for setting the specified field to a string value.
+func (o *MapVariant) SetString(field string, value string) {
+	o.setYAMLNode(field, buildStringNode(value))
+}
+
+// GetString returns the specified field; if not found or not a string it returns false.
+func (o *MapVariant) GetString(key string) (string, bool) {
+	valueNode, found := getValueNode(o.node, key)
+	if !found {
+		return "", found
+	}
+
+	v, ok := AsString(valueNode)
+	if !ok {
+		klog.Warningf("value found but was not a string")
+		return "", true
+	}
+	return v, true
+}
+
 func (o *MapVariant) remove(key string) (bool, error) {
 	removed := false
 
@@ -159,7 +180,7 @@ func (o *MapVariant) remove(key string) (bool, error) {
 	for i := 0; i < len(children); i += 2 {
 		keyNode := children[i]
 
-		k, ok := asString(keyNode)
+		k, ok := AsString(keyNode)
 		if ok && k == key {
 			removed = true
 			continue
@@ -257,3 +278,33 @@ func (nodes yamlKeyValuePairs) Less(i, j int) bool {
 }
 
 func (nodes yamlKeyValuePairs) Swap(i, j int) { nodes[i], nodes[j] = nodes[j], nodes[i] }
+
+// UpsertMap will return the field as a map if it exists and is a map,
+// otherwise it will insert a map at the specified field.
+// Note that if the value exists but is not a map, it will be replaced with a map.
+func (obj *MapVariant) UpsertMap(field string) *MapVariant {
+	node, found := obj.getVariant(field)
+
+	if found {
+		switch node := node.(type) {
+		case *MapVariant:
+			return node
+
+		default:
+			klog.Warningf("replacing value of unexpected type, got %T, want map", node)
+			found = false
+		}
+	}
+
+	keyNode := &yaml.Node{
+		Kind:  yaml.ScalarNode,
+		Value: field,
+		Tag:   "!!str",
+	}
+	valueNode := &yaml.Node{
+		Kind: yaml.MappingNode,
+	}
+	obj.node.Content = append(obj.node.Content, keyNode, valueNode)
+	valueVariant := &MapVariant{node: valueNode}
+	return valueVariant
+}

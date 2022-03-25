@@ -60,14 +60,14 @@ type ResourceList struct {
 // ParseResourceList parses a ResourceList from the input byte array.
 func ParseResourceList(in []byte) (*ResourceList, error) {
 	rl := &ResourceList{}
-	rlObj, err := ParseKubeObject(in)
+	rlObj, err := parseOneKubeObject(in)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse input bytes: %w", err)
 	}
 	if rlObj.GetKind() != kio.ResourceListKind {
 		return nil, fmt.Errorf("input was of unexpected kind %q; expected ResourceList", rlObj.GetKind())
 	}
-	fc, found, err := rlObj.obj.GetNestedMap("functionConfig")
+	fc, found, err := rlObj.m.GetNestedMap("functionConfig")
 	if err != nil {
 		return nil, fmt.Errorf("failed when tried to get functionConfig: %w", err)
 	}
@@ -75,7 +75,7 @@ func ParseResourceList(in []byte) (*ResourceList, error) {
 		rl.FunctionConfig = asKubeObject(fc)
 	}
 
-	items, _, err := rlObj.obj.GetNestedSlice("items")
+	items, _, err := rlObj.m.GetNestedSlice("items")
 	if err != nil {
 		return nil, fmt.Errorf("failed when tried to get items: %w", err)
 	}
@@ -93,7 +93,7 @@ func ParseResourceList(in []byte) (*ResourceList, error) {
 // toYNode converts the ResourceList to the yaml.Node representation.
 func (rl *ResourceList) toYNode() (*yaml.Node, error) {
 	reMap := internal.NewMap(nil)
-	reObj := &KubeObject{obj: reMap}
+	reObj := &KubeObject{SubObject{m: reMap}}
 	reObj.SetAPIVersion(kio.ResourceListAPIVersion)
 	reObj.SetKind(kio.ResourceListKind)
 

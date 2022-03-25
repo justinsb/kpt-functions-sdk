@@ -45,7 +45,7 @@ func (o *MapVariant) SetNestedValue(val variant, fields ...string) error {
 	var err error
 	for i := 0; i < n; i++ {
 		if i == n-1 {
-			current.set(fields[i], val)
+			current.setVariant(fields[i], val)
 		} else {
 			current, _, err = current.getMap(fields[i], true)
 			if err != nil {

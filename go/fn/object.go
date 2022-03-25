@@ -26,11 +26,20 @@ import (
 
 // KubeObject presents a k8s object.
 type KubeObject struct {
-	obj *internal.MapVariant
+	SubObject
 }
 
-// ParseKubeObject parses input byte slice to a KubeObject.
-func ParseKubeObject(in []byte) (*KubeObject, error) {
+// NewKubeObject builds a new KubeObject, unbound to a document.
+func NewKubeObject() *KubeObject {
+	node := &yaml.Node{
+		Kind: yaml.MappingNode,
+	}
+	m := internal.NewMap(node)
+	return asKubeObject(m)
+}
+
+// ParseKubeObjects parses input byte slice to multiple KubeObjects.
+func ParseKubeObjects(in []byte) ([]*KubeObject, error) {
 	doc, err := internal.ParseDoc(in)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse input bytes: %w", err)
@@ -39,11 +48,24 @@ func ParseKubeObject(in []byte) (*KubeObject, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract objects: %w", err)
 	}
+	var kubeObjects []*KubeObject
+	for _, obj := range objects {
+		kubeObjects = append(kubeObjects, asKubeObject(obj))
+	}
+	return kubeObjects, nil
+}
+
+// parseOneKubeObject parses input byte slice to a single KubeObject.
+func parseOneKubeObject(in []byte) (*KubeObject, error) {
+	objects, err := ParseKubeObjects(in)
+	if err != nil {
+		return nil, err
+	}
 	if len(objects) != 1 {
 		return nil, fmt.Errorf("expected exactly one object, got %d", len(objects))
 	}
 	rlMap := objects[0]
-	return asKubeObject(rlMap), nil
+	return rlMap, nil
 }
 
 // GetOrDie gets the value for a nested field located by fields. A pointer must
@@ -56,17 +78,17 @@ func (o *KubeObject) GetOrDie(ptr interface{}, fields ...string) {
 	}
 }
 
-// GetString returns the string value, if the field exist and a potential error.
-func (o *KubeObject) GetString(fields ...string) (string, bool, error) {
+// GetNestedString returns the string value, if the field exist and a potential error.
+func (o *KubeObject) GetNestedString(fields ...string) (string, bool, error) {
 	var val string
 	found, err := o.Get(&val, fields...)
 	return val, found, err
 }
 
-// GetStringOrDie returns the string value at fields. An empty string will be
+// GetNestedStringOrDie returns the string value at fields. An empty string will be
 // returned if the field is not found. It will panic if encountering any errors.
-func (o *KubeObject) GetStringOrDie(fields ...string) string {
-	val, _, err := o.GetString(fields...)
+func (o *KubeObject) GetNestedStringOrDie(fields ...string) string {
+	val, _, err := o.GetNestedString(fields...)
 	if err != nil {
 		panic(ErrOpOrDie{obj: o, fields: fields})
 	}
@@ -107,7 +129,7 @@ func (o *KubeObject) Get(ptr interface{}, fields ...string) (bool, error) {
 		}
 
 		if rn, ok := ptr.(*yaml.RNode); ok {
-			val, found, err := o.obj.GetNestedValue(fields...)
+			val, found, err := o.m.GetNestedValue(fields...)
 			if err != nil || !found {
 				return found, err
 			}
@@ -117,28 +139,28 @@ func (o *KubeObject) Get(ptr interface{}, fields ...string) (bool, error) {
 
 		switch k := reflect.TypeOf(ptr).Elem().Kind(); k {
 		case reflect.Struct, reflect.Map:
-			m, found, err := o.obj.GetNestedMap(fields...)
+			m, found, err := o.m.GetNestedMap(fields...)
 			if err != nil || !found {
 				return found, err
 			}
 			err = m.Node().Decode(ptr)
 			return found, err
 		case reflect.Slice:
-			s, found, err := o.obj.GetNestedSlice(fields...)
+			s, found, err := o.m.GetNestedSlice(fields...)
 			if err != nil || !found {
 				return found, err
 			}
 			err = s.Node().Decode(ptr)
 			return found, err
 		case reflect.String:
-			s, found, err := o.obj.GetNestedString(fields...)
+			s, found, err := o.m.GetNestedString(fields...)
 			if err != nil || !found {
 				return found, err
 			}
 			*(ptr.(*string)) = s
 			return found, nil
 		case reflect.Int, reflect.Int64:
-			i, found, err := o.obj.GetNestedInt(fields...)
+			i, found, err := o.m.GetNestedInt(fields...)
 			if err != nil || !found {
 				return found, err
 			}
@@ -149,14 +171,14 @@ func (o *KubeObject) Get(ptr interface{}, fields ...string) (bool, error) {
 			}
 			return found, nil
 		case reflect.Float64:
-			f, found, err := o.obj.GetNestedFloat(fields...)
+			f, found, err := o.m.GetNestedFloat(fields...)
 			if err != nil || !found {
 				return found, err
 			}
 			*(ptr.(*float64)) = f
 			return found, nil
 		case reflect.Bool:
-			b, found, err := o.obj.GetNestedBool(fields...)
+			b, found, err := o.m.GetNestedBool(fields...)
 			if err != nil || !found {
 				return found, err
 			}
@@ -202,85 +224,6 @@ func (o *KubeObject) SetOrDie(val interface{}, fields ...string) {
 	}
 }
 
-// Set sets a nested field located by fields to the value provided as val. val
-// should not be a yaml.RNode. If you want to deal with yaml.RNode, you should
-// use Get method and modify the underlying yaml.Node.
-func (o *KubeObject) Set(val interface{}, fields ...string) error {
-	err := func() error {
-		if o == nil {
-			return fmt.Errorf("the object doesn't exist")
-		}
-		if val == nil {
-			return fmt.Errorf("the passed-in object must not be nil")
-		}
-		kind := reflect.ValueOf(val).Kind()
-		if kind == reflect.Ptr {
-			kind = reflect.TypeOf(val).Elem().Kind()
-		}
-
-		switch kind {
-		case reflect.Struct, reflect.Map:
-			m, err := internal.TypedObjectToMapVariant(val)
-			if err != nil {
-				return err
-			}
-			return o.obj.SetNestedMap(m, fields...)
-		case reflect.Slice:
-			s, err := internal.TypedObjectToSliceVariant(val)
-			if err != nil {
-				return err
-			}
-			return o.obj.SetNestedSlice(s, fields...)
-		case reflect.String:
-			var s string
-			switch val := val.(type) {
-			case string:
-				s = val
-			case *string:
-				s = *val
-			}
-			return o.obj.SetNestedString(s, fields...)
-		case reflect.Int, reflect.Int64:
-			var i int
-			switch val := val.(type) {
-			case int:
-				i = val
-			case *int:
-				i = *val
-			case int64:
-				i = int(val)
-			case *int64:
-				i = int(*val)
-			}
-			return o.obj.SetNestedInt(i, fields...)
-		case reflect.Float64:
-			var f float64
-			switch val := val.(type) {
-			case float64:
-				f = val
-			case *float64:
-				f = *val
-			}
-			return o.obj.SetNestedFloat(f, fields...)
-		case reflect.Bool:
-			var b bool
-			switch val := val.(type) {
-			case bool:
-				b = val
-			case *bool:
-				b = *val
-			}
-			return o.obj.SetNestedBool(b, fields...)
-		default:
-			return fmt.Errorf("unhandled kind %s", kind)
-		}
-	}()
-	if err != nil {
-		return fmt.Errorf("unable to set %v at fields %v with error: %w", val, fields, err)
-	}
-	return nil
-}
-
 func (o *KubeObject) SetLineComment(comment string, fields ...string) error {
 	rn := &yaml.RNode{}
 	found, err := o.Get(rn, fields...)
@@ -322,7 +265,7 @@ func (o *KubeObject) Remove(fields ...string) (bool, error) {
 		if o == nil {
 			return false, fmt.Errorf("the object doesn't exist")
 		}
-		return o.obj.RemoveNestedField(fields...)
+		return o.m.RemoveNestedField(fields...)
 	}()
 	if err != nil {
 		return found, fmt.Errorf("unable to remove fields %v with error: %w", fields, err)
@@ -348,7 +291,7 @@ func (o *KubeObject) As(ptr interface{}) error {
 		if ptr == nil || reflect.ValueOf(ptr).Kind() != reflect.Ptr {
 			return fmt.Errorf("ptr must be a pointer to an object")
 		}
-		return internal.MapVariantToTypedObject(o.obj, ptr)
+		return internal.MapVariantToTypedObject(o.m, ptr)
 	}()
 	if err != nil {
 		return fmt.Errorf("unable to convert object to %T with error: %w", ptr, err)
@@ -367,7 +310,7 @@ func NewFromTypedObject(v interface{}) (*KubeObject, error) {
 
 // String serializes the object in yaml format.
 func (o *KubeObject) String() string {
-	doc := internal.NewDoc([]*yaml.Node{o.obj.Node()}...)
+	doc := internal.NewDoc([]*yaml.Node{o.m.Node()}...)
 	s, _ := doc.ToYAML()
 	return string(s)
 }
@@ -405,7 +348,6 @@ func (o *KubeObject) IsGVK(apiVersion, kind string) bool {
 	return false
 }
 
-
 // IsLocalConfig checks the "config.kubernetes.io/local-config" field to tell
 // whether a KRM resource will be skipped by `kpt live apply` or not.
 func (o *KubeObject) IsLocalConfig() bool {
@@ -417,100 +359,100 @@ func (o *KubeObject) IsLocalConfig() bool {
 }
 
 func (o *KubeObject) GetAPIVersion() string {
-	apiVersion, _, _ := o.obj.GetNestedString("apiVersion")
+	apiVersion, _, _ := o.m.GetNestedString("apiVersion")
 	return apiVersion
 }
 
 func (o *KubeObject) SetAPIVersion(apiVersion string) {
-	if err := o.obj.SetNestedString(apiVersion, "apiVersion"); err != nil {
+	if err := o.m.SetNestedString(apiVersion, "apiVersion"); err != nil {
 		panic(fmt.Errorf("cannot set apiVersion '%v': %v", apiVersion, err))
 	}
 }
 
 func (o *KubeObject) GetKind() string {
-	kind, _, _ := o.obj.GetNestedString("kind")
+	kind, _, _ := o.m.GetNestedString("kind")
 	return kind
 }
 
 func (o *KubeObject) SetKind(kind string) {
-	if err := o.obj.SetNestedString(kind, "kind"); err != nil {
+	if err := o.m.SetNestedString(kind, "kind"); err != nil {
 		panic(fmt.Errorf("cannot set kind '%v': %v", kind, err))
 	}
 }
 
 func (o *KubeObject) GetName() string {
-	s, _, _ := o.obj.GetNestedString("metadata", "name")
+	s, _, _ := o.m.GetNestedString("metadata", "name")
 	return s
 }
 
 func (o *KubeObject) SetName(name string) {
-	if err := o.obj.SetNestedString(name, "metadata", "name"); err != nil {
+	if err := o.m.SetNestedString(name, "metadata", "name"); err != nil {
 		panic(fmt.Errorf("cannot set metadata name '%v': %v", name, err))
 	}
 }
 
 func (o *KubeObject) GetNamespace() string {
-	s, _, _ := o.obj.GetNestedString("metadata", "namespace")
+	s, _, _ := o.m.GetNestedString("metadata", "namespace")
 	return s
 }
 
 func (o *KubeObject) HasNamespace() bool {
-	_, found, _ := o.obj.GetNestedString("metadata", "namespace")
+	_, found, _ := o.m.GetNestedString("metadata", "namespace")
 	return found
 }
 
 func (o *KubeObject) SetNamespace(name string) {
-	if err := o.obj.SetNestedString(name, "metadata", "namespace"); err != nil {
+	if err := o.m.SetNestedString(name, "metadata", "namespace"); err != nil {
 		panic(fmt.Errorf("cannot set namespace '%v': %v", name, err))
 	}
 }
 
 func (o *KubeObject) SetAnnotation(k, v string) {
-	if err := o.obj.SetNestedString(v, "metadata", "annotations", k); err != nil {
+	if err := o.m.SetNestedString(v, "metadata", "annotations", k); err != nil {
 		panic(fmt.Errorf("cannot set metadata annotations '%v': %v", k, err))
 	}
 }
 
 // Annotations returns all annotations.
 func (o *KubeObject) GetAnnotations() map[string]string {
-	v, _, _ := o.obj.GetNestedStringMap("metadata", "annotations")
+	v, _, _ := o.m.GetNestedStringMap("metadata", "annotations")
 	return v
 }
 
 // Annotation returns one annotation with key k.
 func (o *KubeObject) GetAnnotation(k string) string {
-	v, _, _ := o.obj.GetNestedString("metadata", "annotations", k)
+	v, _, _ := o.m.GetNestedString("metadata", "annotations", k)
 	return v
 }
 
 // RemoveAnnotationsIfEmpty removes the annotations field when it has zero annotations.
 func (o *KubeObject) RemoveAnnotationsIfEmpty() error {
-	annotations, found, err := o.obj.GetNestedStringMap("metadata", "annotations")
+	annotations, found, err := o.m.GetNestedStringMap("metadata", "annotations")
 	if err != nil {
 		return err
 	}
 	if found && len(annotations) == 0 {
-		_, err = o.obj.RemoveNestedField("metadata", "annotations")
+		_, err = o.m.RemoveNestedField("metadata", "annotations")
 		return err
 	}
 	return nil
 }
 
 func (o *KubeObject) SetLabel(k, v string) {
-	if err := o.obj.SetNestedString(v, "metadata", "labels", k); err != nil {
+	if err := o.m.SetNestedString(v, "metadata", "labels", k); err != nil {
 		panic(fmt.Errorf("cannot set metadata labels '%v': %v", k, err))
 	}
 }
 
 // Label returns one label with key k.
 func (o *KubeObject) GetLabel(k string) string {
-	v, _, _ := o.obj.GetNestedString("metadata", "labels", k)
+	v, _, _ := o.m.GetNestedString("metadata", "labels", k)
 	return v
 }
 
 // Labels returns all labels.
 func (o *KubeObject) GetLabels() map[string]string {
-	v, _, _ := o.obj.GetNestedStringMap("metadata", "labels")
+	v, _, _ := o.m.GetNestedStringMap("metadata", "labels")
 	return v
 }
 
@@ -553,14 +495,14 @@ func (o KubeObjects) Less(i, j int) bool {
 }
 
 func asKubeObject(obj *internal.MapVariant) *KubeObject {
-	return &KubeObject{obj}
+	return &KubeObject{SubObject{obj}}
 }
 
 func (o *KubeObject) node() *internal.MapVariant {
-	return o.obj
+	return o.m
 }
 
 func rnodeToKubeObject(rn *yaml.RNode) *KubeObject {
 	mapVariant := internal.NewMap(rn.YNode())
-	return &KubeObject{obj: mapVariant}
+	return &KubeObject{SubObject{mapVariant}}
 }
