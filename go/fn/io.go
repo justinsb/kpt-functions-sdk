@@ -19,13 +19,13 @@ func (rw *byteReadWriter) Read() (*ResourceList, error) {
 	}
 	var items KubeObjects
 	for _, n := range nodes {
-		obj, err := ParseKubeObject([]byte(n.MustString()))
+		obj, err := parseOneKubeObject([]byte(n.MustString()))
 		if err != nil {
 			return nil, err
 		}
 		items = append(items, obj)
 	}
-	obj, err := ParseKubeObject([]byte(rw.ByteReadWriter.FunctionConfig.MustString()))
+	obj, err := parseOneKubeObject([]byte(rw.ByteReadWriter.FunctionConfig.MustString()))
 	if err != nil {
 		return nil, err
 	}

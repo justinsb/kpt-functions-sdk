@@ -60,7 +60,7 @@ type ResourceList struct {
 // ParseResourceList parses a ResourceList from the input byte array.
 func ParseResourceList(in []byte) (*ResourceList, error) {
 	rl := &ResourceList{}
-	rlObj, err := ParseKubeObject(in)
+	rlObj, err := parseOneKubeObject(in)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse input bytes: %w", err)
 	}

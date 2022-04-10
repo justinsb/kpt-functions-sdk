@@ -30,7 +30,7 @@ data:
   foo2: bar2
 `
 
-	o, err := ParseKubeObject([]byte(doc))
+	o, err := parseOneKubeObject([]byte(doc))
 	if err != nil {
 		t.Fatalf("failed to parse object: %v", err)
 	}
