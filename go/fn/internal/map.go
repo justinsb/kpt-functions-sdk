@@ -85,7 +85,7 @@ func (o *MapVariant) Entries() (map[string]variant, error) {
 	return entries, nil
 }
 
-func asString(node *yaml.Node) (string, bool) {
+func AsString(node *yaml.Node) (string, bool) {
 	if node.Kind == yaml.ScalarNode && (node.Tag == "!!str" || node.Tag == "") {
 		return node.Value, true
 	}
@@ -111,7 +111,7 @@ func getValueNode(m *yaml.Node, key string) (*yaml.Node, bool) {
 	for i := 0; i < len(children); i += 2 {
 		keyNode := children[i]
 
-		k, ok := asString(keyNode)
+		k, ok := AsString(keyNode)
 		if ok && k == key {
 			valueNode := children[i+1]
 			return valueNode, true
@@ -133,7 +133,7 @@ func (o *MapVariant) setYAMLNode(key string, node *yaml.Node) {
 	for i := 0; i < len(children); i += 2 {
 		keyNode := children[i]
 
-		k, ok := asString(keyNode)
+		k, ok := AsString(keyNode)
 		if ok && k == key {
 			// TODO: Copy comments?
 			oldNode := children[i+1]
@@ -160,7 +160,7 @@ func (o *MapVariant) remove(key string) (bool, error) {
 	for i := 0; i < len(children); i += 2 {
 		keyNode := children[i]
 
-		k, ok := asString(keyNode)
+		k, ok := AsString(keyNode)
 		if ok && k == key {
 			removed = true
 			continue

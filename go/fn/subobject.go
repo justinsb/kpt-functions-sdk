@@ -15,6 +15,8 @@
 package fn
 
 import (
+	"fmt"
+
 	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn/internal"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
 )
@@ -103,4 +105,19 @@ func (s *SliceSubObjects) MarshalJSON() ([]byte, error) {
 		node.Content = append(node.Content, subObject.obj.Node())
 	}
 	return yaml.NewRNode(node).MarshalJSON()
+}
+
+func (o *SubObject) StringStringEntries() (map[string]string, error) {
+	entries, err := o.obj.Entries()
+	if err != nil {
+		return nil, fmt.Errorf("error parsing configmap data: %w", err)
+	}
+	data := make(map[string]string)
+	for key, v := range entries {
+		vString, ok := internal.AsString(v.Node())
+		if ok {
+			data[key] = vString
+		}
+	}
+	return data, nil
 }
