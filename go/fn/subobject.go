@@ -24,6 +24,11 @@ type SubObject struct {
 	obj *internal.MapVariant
 }
 
+// SetString is a helper for setting the specified field to a string value.
+func (o *SubObject) SetString(key string, value string) {
+	o.obj.SetString(key, value)
+}
+
 func (o *SubObject) UpsertMap(k string) *SubObject {
 	m := o.obj.UpsertMap(k)
 	return &SubObject{obj: m}

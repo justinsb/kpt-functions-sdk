@@ -120,6 +120,11 @@ func (o *MapVariant) SetNestedString(s string, fields ...string) error {
 	return o.SetNestedValue(newStringScalarVariant(s), fields...)
 }
 
+// SetString is a helper for setting the specified field to a string value.
+func (o *MapVariant) SetString(field string, value string) {
+	o.setYAMLNode(field, buildStringNode(value))
+}
+
 func (o *MapVariant) GetNestedBool(fields ...string) (bool, bool, error) {
 	scalar, found, err := o.GetNestedScalar(fields...)
 	if err != nil || !found {
