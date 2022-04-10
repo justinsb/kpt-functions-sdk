@@ -29,6 +29,15 @@ type KubeObject struct {
 	SubObject
 }
 
+// NewKubeObject builds a new KubeObject, unbound to a document.
+func NewKubeObject() *KubeObject {
+	node := &yaml.Node{
+		Kind: yaml.MappingNode,
+	}
+	m := internal.NewMap(node)
+	return asKubeObject(m)
+}
+
 // ParseKubeObject parses input byte slice to a KubeObject.
 func ParseKubeObject(in []byte) (*KubeObject, error) {
 	doc, err := internal.ParseDoc(in)
