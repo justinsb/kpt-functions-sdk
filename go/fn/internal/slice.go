@@ -38,6 +38,10 @@ func (v *sliceVariant) Node() *yaml.Node {
 	return v.node
 }
 
+func (v *sliceVariant) NormalizeStyle() {
+	normalizeStyle(v.node)
+}
+
 func (v *sliceVariant) Clear() {
 	v.node.Content = nil
 }

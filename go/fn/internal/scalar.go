@@ -36,6 +36,10 @@ func (v *scalarVariant) GetKind() variantKind {
 	return variantKindScalar
 }
 
+func (v *scalarVariant) NormalizeStyle() {
+	normalizeStyle(v.node)
+}
+
 func newStringScalarVariant(s string) *scalarVariant {
 	return &scalarVariant{
 		node: buildStringNode(s),

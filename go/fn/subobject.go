@@ -121,3 +121,14 @@ func (o *SubObject) StringStringEntries() (map[string]string, error) {
 	}
 	return data, nil
 }
+
+// ToYAML converts the SubObject to yaml.
+func (o *SubObject) ToYAML() ([]byte, error) {
+	return o.obj.ToYAML()
+}
+
+// NormalizeStyle converts to our default style for rendering.
+// This is particularly useful when we parsed JSON input.
+func (o *SubObject) NormalizeStyle() {
+	o.obj.NormalizeStyle()
+}

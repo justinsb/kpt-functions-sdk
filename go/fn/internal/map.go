@@ -15,6 +15,7 @@
 package internal
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"sort"
@@ -297,4 +298,26 @@ func (obj *MapVariant) GetMap(field string) *MapVariant {
 	}
 
 	return nil
+}
+
+func (obj *MapVariant) ToYAML() ([]byte, error) {
+	var w bytes.Buffer
+	encoder := yaml.NewEncoder(&w)
+
+	if err := encoder.Encode(obj.node); err != nil {
+		return nil, err
+	}
+
+	return w.Bytes(), nil
+}
+
+func (obj *MapVariant) NormalizeStyle() {
+	normalizeStyle(obj.node)
+}
+
+func normalizeStyle(node *yaml.Node) {
+	node.Style = 0
+	for _, child := range node.Content {
+		normalizeStyle(child)
+	}
 }
