@@ -19,6 +19,9 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"runtime/debug"
+
+	"k8s.io/klog/v2"
 
 	"sigs.k8s.io/kustomize/kyaml/errors"
 	"sigs.k8s.io/kustomize/kyaml/kio"
@@ -57,6 +60,8 @@ func Run(p ResourceListProcessor, input []byte) (out []byte, err error) {
 		// and return the ResourceList and error.
 		v := recover()
 		if v != nil {
+			// Include the stack trace as otherwise we only get a very cryptic error.
+			klog.Warningf("recovering from error %v\nstack: %s", v, string(debug.Stack()))
 			switch t := v.(type) {
 			case *ErrKubeObjectFields:
 				err = t
